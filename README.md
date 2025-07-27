@@ -183,7 +183,12 @@ Send these instructions to your customers:
 
 1. Download the appropriate binary for your platform from the [releases page](https://github.com/itay-nvn-nv/nmcrun/releases)
 2. Extract the archive: `tar -xzf nmcrun_*_your_platform.tar.gz` (or unzip for Windows)
-3. Make it executable: `chmod +x nmcrun` (Unix/macOS only)
+3. Make it executable and fix macOS security (Unix/macOS only):
+   ```bash
+   chmod +x nmcrun
+   # On macOS, remove quarantine attribute to avoid security warning:
+   xattr -d com.apple.quarantine nmcrun 2>/dev/null || true
+   ```
 4. Move to PATH: `sudo mv nmcrun /usr/local/bin/` (or add to your PATH)
 
 ### Usage
@@ -236,6 +241,11 @@ Send these instructions to your customers:
    - Check internet connectivity
    - Verify the GitHub repository is accessible
    - Ensure write permissions to the binary location
+
+5. **macOS Security Warning ("cannot be opened because the developer cannot be verified")**
+   - **Command line fix**: `xattr -d com.apple.quarantine nmcrun`
+   - **GUI method**: Right-click → Open → Click "Open" when prompted
+   - **System Settings**: Privacy & Security → Click "Open Anyway"
 
 ### Debug Mode
 
