@@ -1,0 +1,107 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build and Release
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: '1.21'
+    
+    - name: Get version
+      id: version
+      run: |
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "VERSION=$VERSION" >> $GITHUB_OUTPUT
+        echo "Building version: $VERSION"
+    
+    - name: Build binaries
+      run: |
+        chmod +x build.sh
+        VERSION=${{ steps.version.outputs.VERSION }} ./build.sh
+    
+    - name: Generate release notes
+      id: release_notes
+      run: |
+        # Get the tag message or use the tag name
+        TAG_MESSAGE=$(git tag -l --format='%(contents)' ${{ steps.version.outputs.VERSION }})
+        if [ -z "$TAG_MESSAGE" ]; then
+          TAG_MESSAGE="Release ${{ steps.version.outputs.VERSION }}"
+        fi
+        
+        # Create release notes
+        cat > release_notes.md << EOF
+        ## nmcrun ${{ steps.version.outputs.VERSION }}
+        
+        $TAG_MESSAGE
+        
+        ### Installation
+        
+        Download the appropriate binary for your platform:
+        
+        - **macOS (Intel)**: \`nmcrun_*_darwin_amd64.tar.gz\`
+        - **macOS (Apple Silicon)**: \`nmcrun_*_darwin_arm64.tar.gz\`
+        - **Linux (x86_64)**: \`nmcrun_*_linux_amd64.tar.gz\`
+        - **Linux (ARM64)**: \`nmcrun_*_linux_arm64.tar.gz\`
+        - **Windows (x86_64)**: \`nmcrun_*_windows_amd64.zip\`
+        
+        Extract the archive and place the binary in your PATH.
+        
+        ### Usage
+        
+        \`\`\`bash
+        # Show help
+        nmcrun
+        
+        # Run log collection
+        nmcrun logs
+        
+        # Check version
+        nmcrun version
+        
+        # Upgrade to latest version
+        nmcrun upgrade
+        \`\`\`
+        
+        ### What's Changed
+        
+        $TAG_MESSAGE
+        EOF
+        
+        echo "RELEASE_NOTES_FILE=release_notes.md" >> $GITHUB_OUTPUT
+    
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.version.outputs.VERSION }}
+        name: nmcrun ${{ steps.version.outputs.VERSION }}
+        body_path: ${{ steps.release_notes.outputs.RELEASE_NOTES_FILE }}
+        files: |
+          dist/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    
+    - name: Upload artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: binaries
+        path: dist/* 
