@@ -38,8 +38,8 @@ type GitHubRelease struct {
 // New creates a new updater instance
 func New() *Updater {
 	return &Updater{
-		repoOwner: "ianavian", // Replace with your GitHub username
-		repoName:  "nmcrun",   // Replace with your repo name
+		repoOwner: "itay-nvn-nv", // Your GitHub username
+		repoName:  "nmcrun",      // Your repo name
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},

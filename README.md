@@ -29,7 +29,7 @@ Extract the archive and place the binary in your PATH.
 
 ```bash
 # Clone the repository
-git clone https://github.com/ianavian/nmcrun.git
+git clone https://github.com/itay-nvn-nv/nmcrun.git
 cd nmcrun
 
 # Build for current platform
@@ -181,7 +181,7 @@ Send these instructions to your customers:
 
 ### Installation
 
-1. Download the appropriate binary for your platform from the [releases page](https://github.com/ianavian/nmcrun/releases)
+1. Download the appropriate binary for your platform from the [releases page](https://github.com/itay-nvn-nv/nmcrun/releases)
 2. Extract the archive: `tar -xzf nmcrun_*_your_platform.tar.gz` (or unzip for Windows)
 3. Make it executable: `chmod +x nmcrun` (Unix/macOS only)
 4. Move to PATH: `sudo mv nmcrun /usr/local/bin/` (or add to your PATH)
