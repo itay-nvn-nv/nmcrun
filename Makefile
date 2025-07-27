@@ -17,13 +17,13 @@ build:
 	BUILD_DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ") && \
 	GIT_COMMIT=$$(git rev-parse --short HEAD 2>/dev/null || echo "unknown") && \
 	LDFLAGS="-X nmcrun/internal/version.Version=$$VERSION -X nmcrun/internal/version.BuildDate=$$BUILD_DATE -X nmcrun/internal/version.GitCommit=$$GIT_COMMIT" && \
-	go build -ldflags="$$LDFLAGS" -o nmcrun .
+	go build -ldflags "$$LDFLAGS" -o nmcrun .
 
 # Development build with dev version
 dev-build:
 	@BUILD_DATE=$$(date -u +"%Y-%m-%dT%H:%M:%SZ") && \
 	LDFLAGS="-X nmcrun/internal/version.Version=dev -X nmcrun/internal/version.BuildDate=$$BUILD_DATE -X nmcrun/internal/version.GitCommit=dev" && \
-	go build -ldflags="$$LDFLAGS" -o nmcrun .
+	go build -ldflags "$$LDFLAGS" -o nmcrun .
 
 # Run tests
 test:

@@ -20,7 +20,6 @@ echo ""
 
 # Build flags with version information
 LDFLAGS="-X nmcrun/internal/version.Version=$VERSION -X nmcrun/internal/version.BuildDate=$BUILD_DATE -X nmcrun/internal/version.GitCommit=$GIT_COMMIT"
-BUILD_FLAGS="-ldflags=\"$LDFLAGS\" -trimpath"
 
 # Create dist directory
 mkdir -p dist
@@ -56,7 +55,7 @@ for platform in "${PLATFORMS[@]}"; do
     echo "Building $GOOS/$GOARCH..."
     
     # Build binary
-    env GOOS=$GOOS GOARCH=$GOARCH go build $BUILD_FLAGS -o "dist/$output_name" .
+    env GOOS=$GOOS GOARCH=$GOARCH go build -ldflags "$LDFLAGS" -trimpath -o "dist/$output_name" .
     
     # Create archive
     cd dist
