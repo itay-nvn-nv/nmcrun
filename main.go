@@ -60,6 +60,44 @@ and displays RunAI cluster information including control plane and cluster URLs.
 	},
 }
 
+var workloadsCmd = &cobra.Command{
+	Use:   "workloads",
+	Short: "Collect detailed information about a specific RunAI workload",
+	Long: `Collects comprehensive information about a RunAI workload including YAML manifests,
+pod logs, and related resources. Creates a timestamped archive for analysis.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		project, _ := cmd.Flags().GetString("project")
+		workloadType, _ := cmd.Flags().GetString("type")
+		name, _ := cmd.Flags().GetString("name")
+
+		if project == "" || workloadType == "" || name == "" {
+			fmt.Fprintf(os.Stderr, "Error: --project, --type, and --name are required\n")
+			cmd.Usage()
+			os.Exit(1)
+		}
+
+		collector := collector.New()
+		if err := collector.CollectWorkloadInfo(project, workloadType, name); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
+var schedulerCmd = &cobra.Command{
+	Use:   "scheduler",
+	Short: "Collect RunAI scheduler information and resources",
+	Long: `Collects comprehensive RunAI scheduler information including projects, queues,
+nodepools, and departments. Creates a timestamped archive with all resources.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		collector := collector.New()
+		if err := collector.CollectSchedulerInfo(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Check for updates and upgrade to latest version",
@@ -73,8 +111,18 @@ var upgradeCmd = &cobra.Command{
 }
 
 func init() {
+	// Add flags for workloads command
+	workloadsCmd.Flags().StringP("project", "p", "", "RunAI project name (required)")
+	workloadsCmd.Flags().StringP("type", "t", "", "Workload type: tw, iw, infw, dw, dinfw, ew (required)")
+	workloadsCmd.Flags().StringP("name", "n", "", "Workload name (required)")
+	workloadsCmd.MarkFlagRequired("project")
+	workloadsCmd.MarkFlagRequired("type")
+	workloadsCmd.MarkFlagRequired("name")
+
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(testCmd)
+	rootCmd.AddCommand(workloadsCmd)
+	rootCmd.AddCommand(schedulerCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(upgradeCmd)
 }

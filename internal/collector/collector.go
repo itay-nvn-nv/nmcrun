@@ -468,6 +468,201 @@ func (c *Collector) runHelm(args ...string) (string, error) {
 	return string(output), err
 }
 
+// runCommand executes a generic command and returns output
+func (c *Collector) runCommand(name string, args ...string) (string, error) {
+	cmd := exec.Command(name, args...)
+	output, err := cmd.CombinedOutput()
+	return string(output), err
+}
+
+// CollectWorkloadInfo collects detailed information about a specific RunAI workload
+func (c *Collector) CollectWorkloadInfo(project, workloadType, name string) error {
+	fmt.Printf("🚀 Starting workload info collection for '%s' (%s) in project '%s'...\n", name, workloadType, project)
+
+	// Check required tools
+	if err := c.checkRequiredTools(); err != nil {
+		return fmt.Errorf("required tools check failed: %w", err)
+	}
+
+	// Map type aliases to canonical resource names
+	canonicalType := c.getCanonicalWorkloadType(workloadType)
+	if canonicalType == "" {
+		return fmt.Errorf("invalid workload type: %s. Valid types: tw, iw, infw, dw, dinfw, ew", workloadType)
+	}
+
+	// Resolve namespace from project
+	fmt.Printf("🔍 Resolving namespace for project '%s'...\n", project)
+	namespace, err := c.runKubectl("get", "ns", "-l", fmt.Sprintf("runai/queue=%s", project), "-o", "jsonpath={.items[0].metadata.name}")
+	if err != nil || strings.TrimSpace(namespace) == "" {
+		return fmt.Errorf("no namespace found for project: %s", project)
+	}
+	namespace = strings.TrimSpace(namespace)
+	fmt.Printf("✅ Found namespace: %s\n", namespace)
+
+	// Create timestamp and prepare file names
+	timestamp := time.Now().Format("2006_01_02-15_04")
+	typeSafe := strings.Replace(workloadType, "/", "_", -1)
+	archiveName := fmt.Sprintf("%s_%s_%s_%s.tar.gz", project, typeSafe, name, timestamp)
+
+	var outputFiles []string
+
+	fmt.Println("\n📁 Starting collection process...")
+
+	// Collect workload YAML
+	if file, err := c.getWorkloadYAML(namespace, name, canonicalType, typeSafe); err != nil {
+		fmt.Printf("❌ Failed to get workload YAML: %v\n", err)
+	} else {
+		outputFiles = append(outputFiles, file)
+	}
+
+	// Collect RunAIJob YAML
+	if file, err := c.getRunAIJobYAML(namespace, name, typeSafe); err != nil {
+		fmt.Printf("❌ Failed to get RunAIJob YAML: %v\n", err)
+	} else {
+		outputFiles = append(outputFiles, file)
+	}
+
+	// Collect Pod YAML
+	if file, err := c.getPodYAML(namespace, name, typeSafe); err != nil {
+		fmt.Printf("❌ Failed to get Pod YAML: %v\n", err)
+	} else {
+		outputFiles = append(outputFiles, file)
+	}
+
+	// Collect PodGroup YAML
+	if file, err := c.getPodGroupYAML(namespace, name, typeSafe); err != nil {
+		fmt.Printf("❌ Failed to get PodGroup YAML: %v\n", err)
+	} else {
+		outputFiles = append(outputFiles, file)
+	}
+
+	// Collect Pod logs
+	if files, err := c.getPodLogs(namespace, name, typeSafe); err != nil {
+		fmt.Printf("❌ Failed to get Pod logs: %v\n", err)
+	} else {
+		outputFiles = append(outputFiles, files...)
+	}
+
+	// Collect KSVC for inference workloads
+	if canonicalType == "inferenceworkloads" {
+		if file, err := c.getKSVCYAML(namespace, name, typeSafe); err != nil {
+			fmt.Printf("❌ Failed to get KSVC YAML: %v\n", err)
+		} else {
+			outputFiles = append(outputFiles, file)
+		}
+	}
+
+	// Create archive
+	fmt.Printf("\n📦 Creating archive: %s\n", archiveName)
+	if err := c.createWorkloadArchive(archiveName, outputFiles); err != nil {
+		return fmt.Errorf("failed to create archive: %w", err)
+	}
+
+	// Clean up individual files
+	fmt.Println("\n🧹 Cleaning up individual files...")
+	for _, file := range outputFiles {
+		if err := os.Remove(file); err == nil {
+			fmt.Printf("  🗑️  Deleted: %s\n", file)
+		}
+	}
+
+	fmt.Printf("\n✅ Workload info collection completed!\n")
+	fmt.Printf("📦 Archive created: %s\n", archiveName)
+
+	return nil
+}
+
+// CollectSchedulerInfo collects RunAI scheduler information and resources
+func (c *Collector) CollectSchedulerInfo() error {
+	fmt.Println("🚀 Starting RunAI scheduler info collection...")
+
+	// Check required tools
+	if err := c.checkRequiredTools(); err != nil {
+		return fmt.Errorf("required tools check failed: %w", err)
+	}
+
+	// Test cluster connectivity
+	if _, err := c.runKubectl("cluster-info"); err != nil {
+		return fmt.Errorf("cannot connect to Kubernetes cluster: %w", err)
+	}
+	fmt.Println("✅ Connected to Kubernetes cluster")
+
+	// Create timestamp and archive name
+	timestamp := time.Now().Format("02-01-2006_15-04")
+	archiveName := fmt.Sprintf("scheduler_info_dump_%s", timestamp)
+	tempDir := archiveName
+
+	fmt.Printf("📁 Creating temp directory: %s\n", tempDir)
+	if err := os.MkdirAll(tempDir, 0755); err != nil {
+		return fmt.Errorf("failed to create temp directory: %w", err)
+	}
+
+	// Change to temp directory
+	originalDir, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("failed to get current directory: %w", err)
+	}
+
+	if err := os.Chdir(tempDir); err != nil {
+		return fmt.Errorf("failed to change to temp directory: %w", err)
+	}
+
+	// Ensure we change back to original directory
+	defer func() {
+		os.Chdir(originalDir)
+	}()
+
+	// Collect scheduler resources
+	resources := []struct {
+		resourceType string
+		singular     string
+	}{
+		{"projects", "project"},
+		{"queues", "queue"},
+		{"nodepools", "nodepool"},
+		{"departments", "department"},
+	}
+
+	for _, resource := range resources {
+		if err := c.dumpSchedulerResource(resource.resourceType, resource.singular); err != nil {
+			fmt.Printf("⚠️  Warning: Failed to dump %s: %v\n", resource.resourceType, err)
+		}
+	}
+
+	// Go back to original directory
+	if err := os.Chdir(originalDir); err != nil {
+		return fmt.Errorf("failed to change back to original directory: %w", err)
+	}
+
+	// Create archive
+	archiveFile := fmt.Sprintf("%s.tar.gz", archiveName)
+	fmt.Printf("\n📦 Creating archive: %s\n", archiveFile)
+
+	cmd := fmt.Sprintf("tar -czf %s %s", archiveFile, tempDir)
+	if _, err := c.runCommand("sh", "-c", cmd); err != nil {
+		return fmt.Errorf("failed to create archive: %w", err)
+	}
+
+	// Clean up temp directory
+	if err := os.RemoveAll(tempDir); err != nil {
+		fmt.Printf("⚠️  Warning: Failed to clean up temp directory: %v\n", err)
+	}
+
+	fmt.Printf("\n✅ Scheduler info collection completed!\n")
+	fmt.Printf("📦 Archive created: %s\n", archiveFile)
+	fmt.Println("\n📋 Archive contains:")
+	fmt.Println("  - projects_list.txt (projects list)")
+	fmt.Println("  - project_*.yaml (individual projects)")
+	fmt.Println("  - queues_list.txt (queues list)")
+	fmt.Println("  - queue_*.yaml (individual queues)")
+	fmt.Println("  - nodepools_list.txt (nodepools list)")
+	fmt.Println("  - nodepool_*.yaml (individual nodepools)")
+	fmt.Println("  - departments_list.txt (departments list)")
+	fmt.Println("  - department_*.yaml (individual departments)")
+
+	return nil
+}
+
 // RunTests performs environment verification and connectivity tests
 func (c *Collector) RunTests() error {
 	fmt.Println("🧪 Running environment tests for RunAI log collection...")
@@ -691,6 +886,278 @@ func (c *Collector) displayRunAIInfo() error {
 					fmt.Printf("      - %s (%s)\n", fields[0], fields[1])
 				}
 			}
+		}
+	}
+
+	return nil
+}
+
+// Helper methods for workload collection
+
+// getCanonicalWorkloadType maps type aliases to canonical k8s resource names
+func (c *Collector) getCanonicalWorkloadType(workloadType string) string {
+	switch workloadType {
+	case "dinfw", "distributedinferenceworkloads":
+		return "distributedinferenceworkloads"
+	case "dw", "distributedworkloads":
+		return "distributedworkloads"
+	case "ew", "externalworkloads":
+		return "externalworkloads"
+	case "infw", "inferenceworkloads":
+		return "inferenceworkloads"
+	case "iw", "interactiveworkloads":
+		return "interactiveworkloads"
+	case "tw", "trainingworkloads":
+		return "trainingworkloads"
+	default:
+		return ""
+	}
+}
+
+// getWorkloadYAML retrieves workload YAML
+func (c *Collector) getWorkloadYAML(namespace, workload, canonicalType, typeSafe string) (string, error) {
+	filename := fmt.Sprintf("%s_%s_workload.yaml", workload, typeSafe)
+	fmt.Printf("  📄 Getting %s YAML...\n", canonicalType)
+
+	output, err := c.runKubectl("-n", namespace, "get", canonicalType, workload, "-o", "yaml")
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(filename, []byte(output), 0644); err != nil {
+		return "", err
+	}
+
+	fmt.Printf("    ✅ Workload YAML retrieved\n")
+	return filename, nil
+}
+
+// getRunAIJobYAML retrieves RunAIJob YAML
+func (c *Collector) getRunAIJobYAML(namespace, workload, typeSafe string) (string, error) {
+	filename := fmt.Sprintf("%s_%s_runaijob.yaml", workload, typeSafe)
+	fmt.Printf("  📄 Getting RunAIJob YAML...\n")
+
+	output, err := c.runKubectl("-n", namespace, "get", "rj", workload, "-o", "yaml")
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(filename, []byte(output), 0644); err != nil {
+		return "", err
+	}
+
+	fmt.Printf("    ✅ RunAIJob YAML retrieved\n")
+	return filename, nil
+}
+
+// getPodYAML retrieves pod YAML
+func (c *Collector) getPodYAML(namespace, workload, typeSafe string) (string, error) {
+	filename := fmt.Sprintf("%s_%s_pod.yaml", workload, typeSafe)
+	fmt.Printf("  📄 Getting Pod YAML...\n")
+
+	output, err := c.runKubectl("-n", namespace, "get", "pod", "-l", fmt.Sprintf("workloadName=%s", workload), "-o", "yaml")
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(filename, []byte(output), 0644); err != nil {
+		return "", err
+	}
+
+	fmt.Printf("    ✅ Pod YAML retrieved\n")
+	return filename, nil
+}
+
+// getPodGroupYAML retrieves podgroup YAML
+func (c *Collector) getPodGroupYAML(namespace, workload, typeSafe string) (string, error) {
+	filename := fmt.Sprintf("%s_%s_podgroup.yaml", workload, typeSafe)
+	fmt.Printf("  📄 Getting PodGroup YAML...\n")
+
+	output, err := c.runKubectl("-n", namespace, "get", "pg", "-l", fmt.Sprintf("workloadName=%s", workload), "-o", "yaml")
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(filename, []byte(output), 0644); err != nil {
+		return "", err
+	}
+
+	fmt.Printf("    ✅ PodGroup YAML retrieved\n")
+	return filename, nil
+}
+
+// getPodLogs retrieves pod logs
+func (c *Collector) getPodLogs(namespace, workload, typeSafe string) ([]string, error) {
+	fmt.Printf("  📄 Getting Pod Logs...\n")
+
+	// Get all pods for this workload
+	podsOutput, err := c.runKubectl("-n", namespace, "get", "pod", "-l", fmt.Sprintf("workloadName=%s", workload), "-o", "jsonpath={.items[*].metadata.name}")
+	if err != nil {
+		return nil, err
+	}
+
+	pods := strings.Fields(strings.TrimSpace(podsOutput))
+	if len(pods) == 0 {
+		fmt.Printf("    ⚠️  No pods found for workload: %s\n", workload)
+		return []string{}, nil
+	}
+
+	var outputFiles []string
+
+	// Iterate through each pod
+	for _, pod := range pods {
+		fmt.Printf("    🐳 Processing pod: %s\n", pod)
+
+		// Get all containers for this pod
+		containersOutput, err := c.runKubectl("-n", namespace, "get", "pod", pod, "-o", "jsonpath={.spec.initContainers[*].name} {.spec.containers[*].name}")
+		if err != nil {
+			continue
+		}
+
+		containers := strings.Fields(strings.TrimSpace(containersOutput))
+
+		// Iterate through each container
+		for _, container := range containers {
+			logFile := fmt.Sprintf("%s_%s_pod_logs_%s.log", workload, typeSafe, container)
+			fmt.Printf("      📝 Getting logs for container: %s\n", container)
+
+			output, err := c.runKubectl("-n", namespace, "logs", pod, "-c", container)
+			if err == nil {
+				if err := os.WriteFile(logFile, []byte(output), 0644); err == nil {
+					fmt.Printf("        ✅ Container logs retrieved: %s\n", container)
+					outputFiles = append(outputFiles, logFile)
+				}
+			} else {
+				fmt.Printf("        ❌ Failed to retrieve logs for container: %s\n", container)
+			}
+		}
+	}
+
+	if len(outputFiles) > 0 {
+		fmt.Printf("    ✅ Pod logs retrieved for %d containers\n", len(outputFiles))
+	} else {
+		fmt.Printf("    ❌ No container logs were successfully retrieved\n")
+	}
+
+	return outputFiles, nil
+}
+
+// getKSVCYAML retrieves KSVC YAML for inference workloads
+func (c *Collector) getKSVCYAML(namespace, workload, typeSafe string) (string, error) {
+	filename := fmt.Sprintf("%s_%s_ksvc.yaml", workload, typeSafe)
+	fmt.Printf("  📄 Getting KSVC YAML...\n")
+
+	output, err := c.runKubectl("-n", namespace, "get", "ksvc", workload, "-o", "yaml")
+	if err != nil {
+		return "", err
+	}
+
+	if err := os.WriteFile(filename, []byte(output), 0644); err != nil {
+		return "", err
+	}
+
+	fmt.Printf("    ✅ KSVC YAML retrieved\n")
+	return filename, nil
+}
+
+// createWorkloadArchive creates an archive from collected files
+func (c *Collector) createWorkloadArchive(archiveName string, files []string) error {
+	if len(files) == 0 {
+		return fmt.Errorf("no files to archive")
+	}
+
+	// Create tar.gz archive
+	archiveFile, err := os.Create(archiveName)
+	if err != nil {
+		return err
+	}
+	defer archiveFile.Close()
+
+	gzipWriter := gzip.NewWriter(archiveFile)
+	defer gzipWriter.Close()
+
+	tarWriter := tar.NewWriter(gzipWriter)
+	defer tarWriter.Close()
+
+	for _, file := range files {
+		if err := c.addFileToTar(tarWriter, file); err != nil {
+			return fmt.Errorf("failed to add %s to archive: %w", file, err)
+		}
+	}
+
+	return nil
+}
+
+// addFileToTar adds a file to tar archive
+func (c *Collector) addFileToTar(tarWriter *tar.Writer, filename string) error {
+	file, err := os.Open(filename)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	header, err := tar.FileInfoHeader(info, info.Name())
+	if err != nil {
+		return err
+	}
+
+	header.Name = filename
+
+	if err := tarWriter.WriteHeader(header); err != nil {
+		return err
+	}
+
+	_, err = io.Copy(tarWriter, file)
+	return err
+}
+
+// dumpSchedulerResource dumps a scheduler resource type
+func (c *Collector) dumpSchedulerResource(resourceType, singular string) error {
+	fmt.Printf("📊 Dumping %s...\n", resourceType)
+
+	// Get resource list
+	listFile := fmt.Sprintf("%s_list.txt", resourceType)
+	output, err := c.runKubectl("get", resourceType)
+	if err != nil {
+		return fmt.Errorf("failed to get %s list: %w", resourceType, err)
+	}
+
+	if err := os.WriteFile(listFile, []byte(output), 0644); err != nil {
+		return fmt.Errorf("failed to write %s list: %w", resourceType, err)
+	}
+
+	fmt.Printf("✅ %s list saved to %s\n", resourceType, listFile)
+
+	// Extract individual manifests
+	fmt.Printf("📄 Extracting individual %s manifests...\n", resourceType)
+
+	resourcesOutput, err := c.runKubectl("get", resourceType, "--no-headers", "-o", "custom-columns=:metadata.name")
+	if err != nil {
+		return fmt.Errorf("failed to get %s names: %w", resourceType, err)
+	}
+
+	resources := strings.Fields(strings.TrimSpace(resourcesOutput))
+	for _, resource := range resources {
+		if resource != "" {
+			manifestFile := fmt.Sprintf("%s_%s.yaml", singular, resource)
+
+			manifestOutput, err := c.runKubectl("get", singular, resource, "-o", "yaml")
+			if err != nil {
+				fmt.Printf("  ⚠️  Failed to get %s %s: %v\n", singular, resource, err)
+				continue
+			}
+
+			if err := os.WriteFile(manifestFile, []byte(manifestOutput), 0644); err != nil {
+				fmt.Printf("  ⚠️  Failed to write %s %s: %v\n", singular, resource, err)
+				continue
+			}
+
+			fmt.Printf("  ✅ Extracted %s: %s\n", singular, resource)
 		}
 	}
 

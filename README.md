@@ -10,6 +10,8 @@ A comprehensive tool for collecting logs and environment details from RunAI Kube
 - 📊 **Comprehensive reporting** - Collects Helm charts, ConfigMaps, and cluster state
 - 🗜️ **Archive creation** - Automatically creates timestamped tar.gz archives
 - 🏷️ **Version tracking** - Know exactly which version your customers are running
+- 🔍 **Workload analysis** - Detailed information collection for specific workloads
+- 🗂️ **Scheduler diagnostics** - Complete RunAI scheduler resource collection
 
 ## Installation
 
@@ -56,6 +58,12 @@ nmcrun test
 # Run log collection
 nmcrun logs
 
+# Collect workload information
+nmcrun workloads --project myproject --type tw --name myworkload
+
+# Collect scheduler information
+nmcrun scheduler
+
 # Check version information
 nmcrun version
 
@@ -77,6 +85,51 @@ The `nmcrun test` command verifies your environment before log collection:
 - 👥 **Permissions check**: Verifies if you have sufficient cluster permissions
 
 Run `nmcrun test` before collecting logs to ensure everything is properly configured.
+
+### Workload Information Collection
+
+The `nmcrun workloads` command collects detailed information about a specific RunAI workload:
+
+```bash
+nmcrun workloads --project myproject --type tw --name myworkload
+```
+
+**Parameters:**
+- `--project` (`-p`): RunAI project name (required)
+- `--type` (`-t`): Workload type (required). Valid values:
+  - `tw` or `trainingworkloads` - Training workloads
+  - `iw` or `interactiveworkloads` - Interactive workloads
+  - `infw` or `inferenceworkloads` - Inference workloads
+  - `dw` or `distributedworkloads` - Distributed training workloads
+  - `dinfw` or `distributedinferenceworkloads` - Distributed inference workloads
+  - `ew` or `externalworkloads` - External workloads
+- `--name` (`-n`): Workload name (required)
+
+**What gets collected:**
+- Workload YAML manifest
+- RunAIJob YAML
+- Pod YAML (all pods for the workload)
+- PodGroup YAML
+- Pod logs from all containers
+- KSVC YAML (for inference workloads only)
+
+Creates an archive: `{project}_{type}_{workload}_{timestamp}.tar.gz`
+
+### Scheduler Information Collection
+
+The `nmcrun scheduler` command collects comprehensive RunAI scheduler information:
+
+```bash
+nmcrun scheduler
+```
+
+**What gets collected:**
+- Projects: List and individual YAML manifests
+- Queues: List and individual YAML manifests  
+- Nodepools: List and individual YAML manifests
+- Departments: List and individual YAML manifests
+
+Creates an archive: `scheduler_info_dump_{timestamp}.tar.gz`
 
 ### What Gets Collected
 
@@ -250,31 +303,45 @@ Send these instructions to your customers:
    - Install kubectl and ensure it's in your PATH
    - Verify installation with `kubectl version --client`
 
-2. **"helm command not found"** (`nmcrun test` fails)
+2. **"No namespace found for project"** (`nmcrun workloads` fails)
+   - Verify the project name is correct
+   - Check that the RunAI project exists: `kubectl get ns -l runai/queue=PROJECT_NAME`
+   - Ensure you have access to the cluster where the project is deployed
+
+3. **"Invalid workload type"** (`nmcrun workloads` fails)
+   - Use valid type aliases: `tw`, `iw`, `infw`, `dw`, `dinfw`, `ew`
+   - Or use full names: `trainingworkloads`, `interactiveworkloads`, etc.
+
+4. **"Failed to get workload/resource"** (workloads/scheduler commands)
+   - Verify the workload name exists in the specified project
+   - Check cluster permissions for the resource types
+   - Ensure RunAI is properly installed and resources exist
+
+5. **"helm command not found"** (`nmcrun test` fails)
    - Install Helm: https://helm.sh/docs/intro/install/
    - Verify installation with `helm version`
 
-3. **"kubectl cannot connect to cluster"** (`nmcrun test` fails)
+6. **"kubectl cannot connect to cluster"** (`nmcrun test` fails)
    - Check your kubeconfig: `kubectl config current-context`
    - Verify cluster connectivity: `kubectl get nodes`
    - Ensure you're connected to the correct cluster
 
-4. **"no RunAI namespaces found"** (`nmcrun test` fails)
+7. **"no RunAI namespaces found"** (`nmcrun test` fails)
    - Verify RunAI is installed: `kubectl get namespaces | grep runai`
    - Check if you're connected to the correct cluster
    - Ensure RunAI installation is complete
 
-5. **Permission errors** (during log collection)
+8. **Permission errors** (during log collection)
    - Ensure your kubectl context has read access to the required namespaces
    - Check RBAC permissions for the service account
    - Run `nmcrun test` to verify permissions
 
-6. **Upgrade fails**
+9. **Upgrade fails**
    - Check internet connectivity
    - Verify the GitHub repository is accessible
    - Ensure write permissions to the binary location
 
-7. **macOS Security Warning ("cannot be opened because the developer cannot be verified")**
+10. **macOS Security Warning ("cannot be opened because the developer cannot be verified")**
    - **Command line fix**: `xattr -d com.apple.quarantine nmcrun`
    - **GUI method**: Right-click → Open → Click "Open" when prompted
    - **System Settings**: Privacy & Security → Click "Open Anyway"
