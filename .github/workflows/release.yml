@@ -70,6 +70,9 @@ jobs:
         # Show help
         nmcrun
         
+        # Test environment and connectivity
+        nmcrun test
+        
         # Run log collection
         nmcrun logs
         

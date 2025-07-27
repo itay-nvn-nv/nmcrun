@@ -50,6 +50,9 @@ make install
 # Show help (default action)
 nmcrun
 
+# Test environment and connectivity
+nmcrun test
+
 # Run log collection
 nmcrun logs
 
@@ -62,6 +65,18 @@ nmcrun upgrade
 # Show help
 nmcrun --help
 ```
+
+### Environment Testing
+
+The `nmcrun test` command verifies your environment before log collection:
+
+- ✅ **Tool availability**: Checks if `kubectl` and `helm` are installed and working
+- 🌐 **Cluster connectivity**: Tests if `kubectl` can connect to your cluster
+- 📋 **Namespace verification**: Checks if RunAI namespaces (`runai`, `runai-backend`) exist
+- 📊 **RunAI information**: Displays cluster URL, control plane URL, and RunAI version
+- 👥 **Permissions check**: Verifies if you have sufficient cluster permissions
+
+Run `nmcrun test` before collecting logs to ensure everything is properly configured.
 
 ### What Gets Collected
 
@@ -198,7 +213,12 @@ Send these instructions to your customers:
    - `helm` installed
    - Appropriate cluster access permissions
 
-2. **Run the collector**:
+2. **Test your environment** (optional but recommended):
+   ```bash
+   nmcrun test
+   ```
+
+3. **Run the collector**:
    ```bash
    nmcrun logs
    ```
@@ -226,23 +246,35 @@ Send these instructions to your customers:
 
 ### Common Issues
 
-1. **"kubectl command not found"**
+1. **"kubectl command not found"** (`nmcrun test` fails)
    - Install kubectl and ensure it's in your PATH
-   - Verify cluster connectivity with `kubectl get nodes`
+   - Verify installation with `kubectl version --client`
 
-2. **"helm command not found"**
+2. **"helm command not found"** (`nmcrun test` fails)
    - Install Helm: https://helm.sh/docs/intro/install/
+   - Verify installation with `helm version`
 
-3. **Permission errors**
+3. **"kubectl cannot connect to cluster"** (`nmcrun test` fails)
+   - Check your kubeconfig: `kubectl config current-context`
+   - Verify cluster connectivity: `kubectl get nodes`
+   - Ensure you're connected to the correct cluster
+
+4. **"no RunAI namespaces found"** (`nmcrun test` fails)
+   - Verify RunAI is installed: `kubectl get namespaces | grep runai`
+   - Check if you're connected to the correct cluster
+   - Ensure RunAI installation is complete
+
+5. **Permission errors** (during log collection)
    - Ensure your kubectl context has read access to the required namespaces
    - Check RBAC permissions for the service account
+   - Run `nmcrun test` to verify permissions
 
-4. **Upgrade fails**
+6. **Upgrade fails**
    - Check internet connectivity
    - Verify the GitHub repository is accessible
    - Ensure write permissions to the binary location
 
-5. **macOS Security Warning ("cannot be opened because the developer cannot be verified")**
+7. **macOS Security Warning ("cannot be opened because the developer cannot be verified")**
    - **Command line fix**: `xattr -d com.apple.quarantine nmcrun`
    - **GUI method**: Right-click → Open → Click "Open" when prompted
    - **System Settings**: Privacy & Security → Click "Open Anyway"

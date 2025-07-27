@@ -4,10 +4,11 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/spf13/cobra"
 	"nmcrun/internal/collector"
 	"nmcrun/internal/updater"
 	"nmcrun/internal/version"
+
+	"github.com/spf13/cobra"
 )
 
 var rootCmd = &cobra.Command{
@@ -45,6 +46,20 @@ Creates timestamped archives for each namespace (runai and runai-backend).`,
 	},
 }
 
+var testCmd = &cobra.Command{
+	Use:   "test",
+	Short: "Test environment and connectivity for RunAI log collection",
+	Long: `Verifies that required tools (kubectl, helm) are available, tests cluster connectivity,
+and displays RunAI cluster information including control plane and cluster URLs.`,
+	Run: func(cmd *cobra.Command, args []string) {
+		collector := collector.New()
+		if err := collector.RunTests(); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+	},
+}
+
 var upgradeCmd = &cobra.Command{
 	Use:   "upgrade",
 	Short: "Check for updates and upgrade to latest version",
@@ -59,6 +74,7 @@ var upgradeCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(upgradeCmd)
 }
@@ -68,4 +84,4 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 		os.Exit(1)
 	}
-} 
+}
