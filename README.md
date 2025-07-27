@@ -73,7 +73,7 @@ The `nmcrun test` command verifies your environment before log collection:
 - ✅ **Tool availability**: Checks if `kubectl` and `helm` are installed and working
 - 🌐 **Cluster connectivity**: Tests if `kubectl` can connect to your cluster
 - 📋 **Namespace verification**: Checks if RunAI namespaces (`runai`, `runai-backend`) exist
-- 📊 **RunAI information**: Displays cluster URL, control plane URL, and RunAI version
+- 📊 **RunAI information**: Displays cluster URL, control plane URL, RunAI version, and cluster version
 - 👥 **Permissions check**: Verifies if you have sufficient cluster permissions
 
 Run `nmcrun test` before collecting logs to ensure everything is properly configured.

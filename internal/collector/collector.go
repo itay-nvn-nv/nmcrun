@@ -671,6 +671,14 @@ func (c *Collector) displayRunAIInfo() error {
 		fmt.Printf("    ⚠️  RunAI configuration not found\n")
 	}
 
+	// Get RunAI cluster version from configmap
+	clusterVersion, err := c.runKubectl("-n", "runai", "get", "cm", "runai-public", "-o", "jsonpath={.data.cluster-version}")
+	if err == nil && strings.TrimSpace(clusterVersion) != "" {
+		fmt.Printf("    📊 RunAI cluster version: %s\n", strings.TrimSpace(clusterVersion))
+	} else {
+		fmt.Printf("    ⚠️  RunAI cluster version not found\n")
+	}
+
 	// Check Helm charts
 	helmOutput, err := c.runHelm("ls", "-n", "runai", "--no-headers")
 	if err == nil {
