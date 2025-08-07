@@ -786,6 +786,11 @@ func (c *Collector) getResourceAsYAML(namespace, resource, name string) (string,
 		"distributedworkloads":          {{Group: "run.ai", Version: "v1", Resource: "distributedworkloads"}, {Group: "run.ai", Version: "v2alpha1", Resource: "distributedworkloads"}},
 		"distributedinferenceworkloads": {{Group: "run.ai", Version: "v1", Resource: "distributedinferenceworkloads"}, {Group: "run.ai", Version: "v2alpha1", Resource: "distributedinferenceworkloads"}},
 		"externalworkloads":             {{Group: "run.ai", Version: "v1", Resource: "externalworkloads"}, {Group: "run.ai", Version: "v2alpha1", Resource: "externalworkloads"}},
+		// RunAI scheduler resources
+		"projects":    {{Group: "run.ai", Version: "v2", Resource: "projects"}},
+		"queues":      {{Group: "scheduling.run.ai", Version: "v2", Resource: "queues"}},
+		"nodepools":   {{Group: "run.ai", Version: "v1alpha1", Resource: "nodepools"}},
+		"departments": {{Group: "scheduling.run.ai", Version: "v1", Resource: "departments"}},
 	}
 
 	gvrList, exists := gvrCandidates[resource]
@@ -1122,6 +1127,12 @@ func (c *Collector) CollectSchedulerInfo() error {
 	for _, resource := range resources {
 		if err := c.dumpSchedulerResource(resource.resourceType, resource.singular); err != nil {
 			fmt.Printf("⚠️  Warning: Failed to dump %s: %v\n", resource.resourceType, err)
+		} else {
+			// Validate that the list file has meaningful content
+			listFile := fmt.Sprintf("%s_list.txt", resource.resourceType)
+			if err := c.validateFileContent(listFile); err != nil {
+				fmt.Printf("⚠️  Warning: %v\n", err)
+			}
 		}
 	}
 
@@ -1587,44 +1598,154 @@ func (c *Collector) addFileToTar(tarWriter *tar.Writer, filename string) error {
 	return err
 }
 
-// dumpSchedulerResource dumps a scheduler resource type
+// dumpSchedulerResource dumps a scheduler resource type using native client-go
 func (c *Collector) dumpSchedulerResource(resourceType, singular string) error {
 	fmt.Printf("📊 Dumping %s...\n", resourceType)
 
-	// Get resource list - simplified for now
-	listFile := fmt.Sprintf("%s_list.txt", resourceType)
-	output := fmt.Sprintf("# %s resources - client-go implementation pending\n", resourceType)
-	// TODO: Implement proper resource listing with dynamic client
+	// Map resource types to their actual GVR based on RunAI API definitions
+	gvrCandidates := map[string][]schema.GroupVersionResource{
+		"projects":    {{Group: "run.ai", Version: "v2", Resource: "projects"}},
+		"queues":      {{Group: "scheduling.run.ai", Version: "v2", Resource: "queues"}},
+		"nodepools":   {{Group: "run.ai", Version: "v1alpha1", Resource: "nodepools"}},
+		"departments": {{Group: "scheduling.run.ai", Version: "v1", Resource: "departments"}},
+	}
 
-	if err := os.WriteFile(listFile, []byte(output), 0644); err != nil {
+	gvrList, exists := gvrCandidates[resourceType]
+	if !exists {
+		return fmt.Errorf("unknown scheduler resource type: %s", resourceType)
+	}
+
+	// Get resource list using dynamic client with fallback versions
+	listFile := fmt.Sprintf("%s_list.txt", resourceType)
+	var resourceList *unstructured.UnstructuredList
+	var lastErr error
+
+	// Try each GVR version until one works
+	for _, gvr := range gvrList {
+		var err error
+		resourceList, err = c.dynamicClient.Resource(gvr).List(context.TODO(), metav1.ListOptions{})
+		if err == nil {
+			break // Success
+		}
+		lastErr = err
+	}
+
+	if resourceList == nil {
+		// If we can't list resources, create an informative error file instead of empty
+		errorOutput := fmt.Sprintf("# %s resources\n# Error retrieving %s: %v\n# This may be normal if %s are not configured in this cluster\n",
+			resourceType, resourceType, lastErr, resourceType)
+		if err := os.WriteFile(listFile, []byte(errorOutput), 0644); err != nil {
+			return fmt.Errorf("failed to write %s error file: %w", resourceType, err)
+		}
+		fmt.Printf("⚠️  %s list saved with error info to %s\n", resourceType, listFile)
+		return nil
+	}
+
+	// Create list output
+	var output strings.Builder
+	output.WriteString(fmt.Sprintf("# %s resources (found %d)\n", resourceType, len(resourceList.Items)))
+	output.WriteString(fmt.Sprintf("# Retrieved using native Kubernetes client-go\n\n"))
+
+	// Special handling for queues
+	if resourceType == "queues" {
+		output.WriteString("# Note: Queues are dedicated RunAI scheduling resources\n")
+		output.WriteString("# API: scheduling.run.ai/v2\n\n")
+	}
+
+	output.WriteString("NAME\tCREATED\tAGE\n")
+
+	resourceNames := []string{}
+	for _, item := range resourceList.Items {
+		name := item.GetName()
+
+		// For queues, we may want to show additional scheduling info
+		if resourceType == "queues" {
+			// Queues are now proper scheduling.run.ai/v2 resources
+			// Could add queue-specific metadata here if needed
+		}
+
+		resourceNames = append(resourceNames, name)
+
+		creationTime := item.GetCreationTimestamp()
+		age := time.Since(creationTime.Time).Truncate(time.Second)
+
+		output.WriteString(fmt.Sprintf("%s\t%s\t%s\n",
+			name,
+			creationTime.Format("2006-01-02 15:04:05"),
+			age.String()))
+	}
+
+	if err := os.WriteFile(listFile, []byte(output.String()), 0644); err != nil {
 		return fmt.Errorf("failed to write %s list: %w", resourceType, err)
 	}
 
-	fmt.Printf("✅ %s list saved to %s\n", resourceType, listFile)
+	fmt.Printf("✅ %s list saved to %s (%d resources found)\n", resourceType, listFile, len(resourceList.Items))
 
 	// Extract individual manifests
-	fmt.Printf("📄 Extracting individual %s manifests...\n", resourceType)
+	if len(resourceNames) > 0 {
+		fmt.Printf("📄 Extracting individual %s manifests...\n", resourceType)
 
-	// Get resource names - simplified for now
-	// TODO: Implement proper resource name extraction with dynamic client
-	resources := []string{} // Empty for now
-	for _, resource := range resources {
-		if resource != "" {
-			manifestFile := fmt.Sprintf("%s_%s.yaml", singular, resource)
+		for _, resourceName := range resourceNames {
+			manifestFile := fmt.Sprintf("%s_%s.yaml", singular, resourceName)
 
-			manifestOutput, err := c.getResourceAsYAML("", singular, resource)
+			// Get individual resource with fallback versions
+			var resource *unstructured.Unstructured
+			var resourceErr error
+
+			for _, gvr := range gvrList {
+				resource, resourceErr = c.dynamicClient.Resource(gvr).Get(context.TODO(), resourceName, metav1.GetOptions{})
+				if resourceErr == nil {
+					break // Success
+				}
+			}
+
+			if resource == nil {
+				fmt.Printf("  ⚠️  Failed to get %s %s: %v\n", singular, resourceName, resourceErr)
+				continue
+			}
+
+			// Convert to YAML
+			manifestOutput, err := c.objectToYAML(resource)
 			if err != nil {
-				fmt.Printf("  ⚠️  Failed to get %s %s: %v\n", singular, resource, err)
+				fmt.Printf("  ⚠️  Failed to convert %s %s to YAML: %v\n", singular, resourceName, err)
 				continue
 			}
 
 			if err := os.WriteFile(manifestFile, []byte(manifestOutput), 0644); err != nil {
-				fmt.Printf("  ⚠️  Failed to write %s %s: %v\n", singular, resource, err)
+				fmt.Printf("  ⚠️  Failed to write %s %s: %v\n", singular, resourceName, err)
 				continue
 			}
 
-			fmt.Printf("  ✅ Extracted %s: %s\n", singular, resource)
+			fmt.Printf("  ✅ Extracted %s: %s\n", singular, resourceName)
 		}
+	} else {
+		fmt.Printf("📄 No %s found to extract\n", resourceType)
+	}
+
+	return nil
+}
+
+// validateFileContent checks if a file has meaningful content (not just comments or empty)
+func (c *Collector) validateFileContent(filename string) error {
+	data, err := os.ReadFile(filename)
+	if err != nil {
+		return fmt.Errorf("cannot read file %s: %w", filename, err)
+	}
+
+	content := strings.TrimSpace(string(data))
+	lines := strings.Split(content, "\n")
+
+	meaningfulLines := 0
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Skip empty lines and comment-only lines
+		if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+			meaningfulLines++
+		}
+	}
+
+	if meaningfulLines == 0 {
+		return fmt.Errorf("file %s contains no meaningful content (only comments or empty)", filename)
 	}
 
 	return nil
