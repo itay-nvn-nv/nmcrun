@@ -38,7 +38,11 @@ var logsCmd = &cobra.Command{
 	Long: `Collects logs from RunAI pods, cluster configuration, and environment details.
 Creates timestamped archives for each namespace (runai and runai-backend).`,
 	Run: func(cmd *cobra.Command, args []string) {
-		collector := collector.New()
+		collector, err := collector.New()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing collector: %v\n", err)
+			os.Exit(1)
+		}
 		if err := collector.Run(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -49,10 +53,14 @@ Creates timestamped archives for each namespace (runai and runai-backend).`,
 var testCmd = &cobra.Command{
 	Use:   "test",
 	Short: "Test environment and connectivity for RunAI log collection",
-	Long: `Verifies that required tools (kubectl, helm) are available, tests cluster connectivity,
-and displays RunAI cluster information including control plane and cluster URLs.`,
+	Long: `Tests Kubernetes cluster connectivity and displays RunAI cluster information 
+including control plane and cluster URLs. No external tools required.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		collector := collector.New()
+		collector, err := collector.New()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing collector: %v\n", err)
+			os.Exit(1)
+		}
 		if err := collector.RunTests(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -76,7 +84,11 @@ pod logs, and related resources. Creates a timestamped archive for analysis.`,
 			os.Exit(1)
 		}
 
-		collector := collector.New()
+		collector, err := collector.New()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing collector: %v\n", err)
+			os.Exit(1)
+		}
 		if err := collector.CollectWorkloadInfo(project, workloadType, name); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
@@ -90,7 +102,11 @@ var schedulerCmd = &cobra.Command{
 	Long: `Collects comprehensive RunAI scheduler information including projects, queues,
 nodepools, and departments. Creates a timestamped archive with all resources.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		collector := collector.New()
+		collector, err := collector.New()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error initializing collector: %v\n", err)
+			os.Exit(1)
+		}
 		if err := collector.CollectSchedulerInfo(); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
